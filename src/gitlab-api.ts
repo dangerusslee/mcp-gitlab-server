@@ -2149,7 +2149,7 @@ export class GitLabApi {
       
       runners.forEach(runner => {
         if (runner.active && runner.online) {
-          runner.tag_list.forEach(tag => availableTags.add(tag));
+          runner.tag_list?.forEach(tag => availableTags.add(tag));
           availableRunners.push(runner);
         }
       });
@@ -2564,17 +2564,17 @@ export class GitLabApi {
       }
       
       // Determine overall health
-      const healthy = runner.active && !runner.paused && runner.online && issues.length === 0;
+      const healthy = runner.active && !runner.paused && (runner.online ?? false) && issues.length === 0;
       
       return {
         runner_id: runner.id,
         healthy,
         status: runner.status,
-        online: runner.online,
-        last_contact: runner.contacted_at,
-        version: runner.version,
-        platform: runner.platform,
-        architecture: runner.architecture,
+        online: runner.online ?? false,
+        last_contact: runner.contacted_at ?? null,
+        version: runner.version ?? null,
+        platform: runner.platform ?? null,
+        architecture: runner.architecture ?? null,
         ip_address: runner.ip_address,
         issues,
         recommendations
