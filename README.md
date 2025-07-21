@@ -25,12 +25,13 @@
 
 ## ✨ Features
 
-- **Comprehensive GitLab API Integration** - Access repositories, issues, merge requests, wikis, and more
+- **Comprehensive GitLab API Integration** - Access repositories, issues, merge requests, wikis, runners and more
 - **Both Transports Supported** - Use with stdio or Server-Sent Events (SSE)
 - **Consistent Response Formatting** - Standardized pagination and response structures
 - **Strong TypeScript Typing** - Built with the MCP SDK for type safety
 - **Complete Documentation** - Examples for all available tools
 - **CI/CD Pipeline Integration** - Validate CI YAML configurations and trigger pipelines with job insights
+- **Runner Management** - Comprehensive GitLab runner administration with full lifecycle control
 
 ### 🔍 Supported Operations
 
@@ -40,6 +41,7 @@
 - **Issue Tracking** - Create, list, filter issues
 - **Merge Requests** - Create, list, review merge requests
 - **CI/CD Pipelines** - Validate CI YAML configurations, trigger runs, inspect jobs
+- **Runner Management** - Register, list, update, delete, and manage GitLab runners
 - **Group Management** - List group projects and members
 - **Project Activity** - Track events and commit history
 - **Wiki Management** - Full support for project and group wikis with attachments
@@ -688,6 +690,466 @@ curl -X POST "https://gitlab.com/api/v4/projects/{project_id}/ci/lint" \
 
 </details>
 
+### Runner Management
+
+GitLab Runners are the agents that execute CI/CD jobs. This server provides comprehensive runner management capabilities, including registration, monitoring, and administration of project-specific, group-specific, and instance-wide runners.
+
+#### Authentication Requirements
+
+Runner management operations require appropriate GitLab permissions:
+
+- **Project Runners**: Maintainer access to the specific project
+- **Group Runners**: Owner access to the group  
+- **Instance Runners**: Admin access to the GitLab instance
+- **Registration**: Requires valid registration tokens from project/group/instance settings
+
+#### Error Handling
+
+All runner operations include comprehensive error handling:
+
+```json
+{
+  "error": "Runner not found",
+  "status": 404,
+  "details": "No runner found with ID 12345"
+}
+```
+
+Common error scenarios:
+- **403 Forbidden**: Insufficient permissions for the operation
+- **404 Not Found**: Runner, project, or group does not exist
+- **400 Bad Request**: Invalid parameters or registration token
+- **422 Unprocessable Entity**: Validation errors in runner configuration
+
+<details>
+<summary><b>register_project_runner</b>: Register a new runner for a specific project</summary>
+
+```json
+{
+  "project_id": "username/project",
+  "token": "project-registration-token",
+  "description": "My Project Runner",
+  "tag_list": ["docker", "linux", "production"],
+  "run_untagged": false,
+  "locked": true,
+  "access_level": "not_protected",
+  "maximum_timeout": 3600
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier (e.g., "username/project" or "12345")
+- `token` (required): Project registration token from Project Settings > CI/CD > Runners
+- `description` (optional): Human-readable description for the runner
+- `tag_list` (optional): Array of tags to assign to the runner
+- `run_untagged` (optional): Whether runner can execute jobs without tags (default: true)
+- `locked` (optional): Whether runner is locked to current project (default: false)
+- `access_level` (optional): "not_protected" or "ref_protected" (default: "not_protected")
+- `maximum_timeout` (optional): Maximum job timeout in seconds
+
+**Response Format:**
+```json
+{
+  "id": 12345,
+  "token": "runner-authentication-token",
+  "description": "My Project Runner",
+  "active": true,
+  "paused": false,
+  "is_shared": false,
+  "runner_type": "project_type",
+  "name": null,
+  "online": false,
+  "status": "offline"
+}
+```
+
+**Usage Examples:**
+
+1. **Basic project runner registration:**
+```json
+{
+  "project_id": "mygroup/myproject",
+  "token": "GR1348941abc123def456",
+  "description": "Production Docker Runner"
+}
+```
+
+2. **Advanced runner with specific configuration:**
+```json
+{
+  "project_id": "12345",
+  "token": "GR1348941abc123def456",
+  "description": "Specialized Build Runner", 
+  "tag_list": ["docker", "linux", "build"],
+  "run_untagged": false,
+  "locked": true,
+  "access_level": "ref_protected",
+  "maximum_timeout": 7200
+}
+```
+
+</details>
+
+<details>
+<summary><b>register_group_runner</b>: Register a new runner for a specific group</summary>
+
+```json
+{
+  "group_id": "my-group",
+  "token": "group-registration-token",
+  "description": "My Group Runner",
+  "tag_list": ["docker", "linux"],
+  "run_untagged": true,
+  "access_level": "not_protected",
+  "maximum_timeout": 3600
+}
+```
+
+**Parameters:**
+- `group_id` (required): Group identifier (e.g., "my-group" or "67890")
+- `token` (required): Group registration token from Group Settings > CI/CD > Runners
+- `description` (optional): Human-readable description for the runner
+- `tag_list` (optional): Array of tags to assign to the runner
+- `run_untagged` (optional): Whether runner can execute jobs without tags (default: true)
+- `access_level` (optional): "not_protected" or "ref_protected" (default: "not_protected")
+- `maximum_timeout` (optional): Maximum job timeout in seconds
+
+**Response Format:**
+```json
+{
+  "id": 12346,
+  "token": "runner-authentication-token",
+  "description": "My Group Runner",
+  "active": true,
+  "paused": false,
+  "is_shared": false,
+  "runner_type": "group_type",
+  "name": null,
+  "online": false,
+  "status": "offline"
+}
+```
+
+</details>
+
+<details>
+<summary><b>list_project_runners</b>: List all runners available to a project (including inherited)</summary>
+
+```json
+{
+  "project_id": "username/project",
+  "scope": "active",
+  "type": "project_type",
+  "status": "online",
+  "tag_list": ["docker", "linux"],
+  "page": 1,
+  "per_page": 20
+}
+```
+
+**Parameters:**
+- `project_id` (required): Project identifier
+- `scope` (optional): Filter by scope - "active", "paused", "online", "offline" 
+- `type` (optional): Filter by type - "instance_type", "group_type", "project_type"
+- `status` (optional): Filter by status - "online", "offline", "stale", "never_contacted"
+- `tag_list` (optional): Array of tags to filter by
+- `page` (optional): Page number for pagination (default: 1)
+- `per_page` (optional): Number of results per page (default: 20, max: 100)
+
+**Response Format:**
+```json
+{
+  "count": 3,
+  "items": [
+    {
+      "id": 12345,
+      "description": "My Project Runner",
+      "ip_address": "192.168.1.100",
+      "active": true,
+      "paused": false,
+      "is_shared": false,
+      "runner_type": "project_type",
+      "name": null,
+      "online": true,
+      "status": "online",
+      "created_at": "2023-01-01T00:00:00Z",
+      "contacted_at": "2023-01-02T12:30:00Z",
+      "architecture": "linux/amd64",
+      "platform": "linux",
+      "projects": [
+        {
+          "id": 123,
+          "name": "myproject",
+          "name_with_namespace": "mygroup/myproject"
+        }
+      ],
+      "groups": [],
+      "version": "15.8.0",
+      "access_level": "not_protected",
+      "maximum_timeout": 3600,
+      "tag_list": ["docker", "linux", "production"]
+    }
+  ]
+}
+```
+
+</details>
+
+<details>
+<summary><b>list_group_runners</b>: List all runners available to a group</summary>
+
+```json
+{
+  "group_id": "my-group",
+  "type": "group_type",
+  "status": "online",
+  "tag_list": ["docker"],
+  "page": 1,
+  "per_page": 20
+}
+```
+
+**Parameters:**
+- `group_id` (required): Group identifier
+- `type` (optional): Filter by type - "instance_type", "group_type"
+- `status` (optional): Filter by status - "online", "offline", "stale", "never_contacted"
+- `tag_list` (optional): Array of tags to filter by
+- `page` (optional): Page number for pagination
+- `per_page` (optional): Number of results per page
+
+**Response Format:**
+```json
+{
+  "count": 2,
+  "items": [
+    {
+      "id": 12346,
+      "description": "My Group Runner",
+      "ip_address": "192.168.1.101", 
+      "active": true,
+      "paused": false,
+      "is_shared": false,
+      "runner_type": "group_type",
+      "name": null,
+      "online": true,
+      "status": "online",
+      "created_at": "2023-01-01T00:00:00Z",
+      "contacted_at": "2023-01-02T12:30:00Z",
+      "architecture": "linux/amd64",
+      "platform": "linux",
+      "projects": [],
+      "groups": [
+        {
+          "id": 456,
+          "name": "my-group",
+          "full_name": "my-group"
+        }
+      ],
+      "version": "15.8.0",
+      "access_level": "not_protected",
+      "maximum_timeout": 3600,
+      "tag_list": ["docker", "linux"]
+    }
+  ]
+}
+```
+
+</details>
+
+<details>
+<summary><b>list_all_runners</b>: List all runners in the GitLab instance (admin only)</summary>
+
+```json
+{
+  "scope": "active",
+  "type": "instance_type",
+  "status": "online",
+  "tag_list": ["shared"],
+  "page": 1,
+  "per_page": 20
+}
+```
+
+**Parameters:**
+- `scope` (optional): Filter by scope - "active", "paused", "online", "offline"
+- `type` (optional): Filter by type - "instance_type", "group_type", "project_type" 
+- `status` (optional): Filter by status - "online", "offline", "stale", "never_contacted"
+- `tag_list` (optional): Array of tags to filter by
+- `page` (optional): Page number for pagination
+- `per_page` (optional): Number of results per page
+
+**Authentication:** Requires GitLab admin privileges
+
+</details>
+
+<details>
+<summary><b>get_runner_details</b>: Get detailed information about a specific runner</summary>
+
+```json
+{
+  "runner_id": 12345
+}
+```
+
+**Parameters:**
+- `runner_id` (required): Runner ID
+
+**Response Format:**
+```json
+{
+  "id": 12345,
+  "description": "My Project Runner",
+  "ip_address": "192.168.1.100",
+  "active": true,
+  "paused": false,
+  "is_shared": false,
+  "runner_type": "project_type",
+  "name": null,
+  "online": true,
+  "status": "online",
+  "created_at": "2023-01-01T00:00:00Z",
+  "contacted_at": "2023-01-02T12:30:00Z",
+  "architecture": "linux/amd64",
+  "platform": "linux",
+  "projects": [
+    {
+      "id": 123,
+      "name": "myproject",
+      "name_with_namespace": "mygroup/myproject"
+    }
+  ],
+  "groups": [],
+  "version": "15.8.0",
+  "revision": "abc123def",
+  "access_level": "not_protected",
+  "maximum_timeout": 3600,
+  "tag_list": ["docker", "linux", "production"],
+  "run_untagged": false,
+  "locked": true
+}
+```
+
+</details>
+
+<details>
+<summary><b>update_runner</b>: Update configuration of an existing runner</summary>
+
+```json
+{
+  "runner_id": 12345,
+  "description": "Updated Runner Description",
+  "active": true,
+  "tag_list": ["docker", "linux", "updated"],
+  "run_untagged": true,
+  "locked": false,
+  "access_level": "ref_protected",
+  "maximum_timeout": 7200
+}
+```
+
+**Parameters:**
+- `runner_id` (required): Runner ID
+- `description` (optional): New description for the runner
+- `active` (optional): Whether the runner is active
+- `tag_list` (optional): New array of tags (replaces existing tags)
+- `run_untagged` (optional): Whether runner can execute jobs without tags
+- `locked` (optional): Whether runner is locked to current projects
+- `access_level` (optional): "not_protected" or "ref_protected"
+- `maximum_timeout` (optional): Maximum job timeout in seconds
+
+**Response Format:**
+```json
+{
+  "id": 12345,
+  "description": "Updated Runner Description", 
+  "active": true,
+  "paused": false,
+  "is_shared": false,
+  "runner_type": "project_type",
+  "tag_list": ["docker", "linux", "updated"],
+  "run_untagged": true,
+  "locked": false,
+  "access_level": "ref_protected",
+  "maximum_timeout": 7200
+}
+```
+
+</details>
+
+<details>
+<summary><b>pause_runner</b>: Pause a runner (prevents it from picking up new jobs)</summary>
+
+```json
+{
+  "runner_id": 12345
+}
+```
+
+**Parameters:**
+- `runner_id` (required): Runner ID
+
+**Response Format:**
+```json
+{
+  "id": 12345,
+  "description": "My Project Runner",
+  "active": false,
+  "paused": true,
+  "status": "paused"
+}
+```
+
+</details>
+
+<details>
+<summary><b>resume_runner</b>: Resume a paused runner</summary>
+
+```json
+{
+  "runner_id": 12345
+}
+```
+
+**Parameters:**
+- `runner_id` (required): Runner ID
+
+**Response Format:**
+```json
+{
+  "id": 12345,
+  "description": "My Project Runner",
+  "active": true,
+  "paused": false,
+  "status": "online"
+}
+```
+
+</details>
+
+<details>
+<summary><b>delete_runner</b>: Permanently delete a runner</summary>
+
+```json
+{
+  "runner_id": 12345
+}
+```
+
+**Parameters:**
+- `runner_id` (required): Runner ID
+
+**Response Format:**
+```json
+{
+  "message": "Runner deleted successfully",
+  "runner_id": 12345
+}
+```
+
+**⚠️ Warning:** This operation is irreversible. The runner will be permanently removed and will need to be re-registered if required again.
+
+</details>
+
 ### Member Operations
 
 <details>
@@ -973,6 +1435,7 @@ For more detailed documentation, please visit our [documentation site](https://y
 
 - **AI-powered Development Workflows** - Enable AI assistants to interact with your GitLab repositories
 - **Automated Issue and PR Management** - Streamline development processes with AI support
+- **Runner Administration** - Automate GitLab runner lifecycle management and monitoring
 - **Wiki Management** - Automate documentation updates and knowledge base management
 - **Team Collaboration** - Integrate AI assistants into your team's GitLab workflow
 
@@ -980,6 +1443,7 @@ For more detailed documentation, please visit our [documentation site](https://y
 
 - [x] GitLab CI/CD Integration
 - [x] CI YAML Validation with GitLab Lint API
+- [x] Runner Management (Registration, listing, updating, lifecycle control)
 - [ ] Advanced Project Analytics
 - [x] Comprehensive Test Suite
 - [ ] Support for GitLab GraphQL API

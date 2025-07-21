@@ -1,43 +1,22 @@
-High Priority Implementation:
+The GitLab MCP server lacks runner management functions. Here's the TODO list for implementing runner management:
 
-1. ✅ API endpoint verified working with GITLAB_PERSONAL_ACCESS_TOKEN
-2. Implement mcp**gitlab**validate_ci_yaml function
-   mcp**gitlab**validate_ci_yaml(project_id: string, content?: string): Promise<CILintResponse>
-3. Add POST /api/v4/projects/:id/ci/lint API call
+TODO: GitLab MCP Runner Management Implementation
 
-   - Endpoint: POST https://gitlab.com/api/v4/projects/${project_id}/ci/lint
-   - Headers: {"Content-Type": "application/json", "Authorization": "Bearer ${GITLAB_PERSONAL_ACCESS_TOKEN}"}
-   - Body: {"content": yaml_content}
+🔴 High Priority - Core Runner Functions
 
-4. Handle authentication with GITLAB_PERSONAL_ACCESS_TOKEN
+1. Add get_project_runners function - List all runners available to a project
+2. Add list_shared_runners function - List GitLab instance shared runners
+3. Add get_runner_details function - Get detailed info about specific runner
 
-   - Use environment variable: process.env.GITLAB_PERSONAL_ACCESS_TOKEN
-   - Add error handling for missing token
+🟡 Medium Priority - Runner Control Functions
 
-5. Fix YAML anchor reference issue causing script validation errors
+4. Add enable_project_runner function - Enable a runner for a project
+5. Add disable_project_runner function - Disable a runner for a project
+6. Add register_runner function - Register new runner with project
+7. Update pipeline creation to validate runner tags exist - Prevent invalid tag errors
 
-   - The current .gitlab-ci.yml has YAML anchor syntax errors in the script sections
+🟢 Low Priority - Advanced Runner Features
 
-Implementation Details:
-
-API Call Pattern:
-curl -X POST "https://gitlab.com/api/v4/projects/71771195/ci/lint" \
- -H "Content-Type: application/json" \
- -H "Authorization: Bearer ${GITLAB_PERSONAL_ACCESS_TOKEN}" \
- --data '{"content": "yaml_content_here"}'
-
-Expected Response Format:
-interface CILintResponse {
-valid: boolean;
-errors: string[];
-warnings: string[];
-merged_yaml: string;
-includes?: any[];
-}
-
-Function Parameters:
-{
-project_id: string, // Required: "71771195" or "testing7075939/ami-rhel9-gold"
-content?: string, // Optional: YAML content (auto-read from .gitlab-ci.yml if not provided)
-include_merged_yaml?: boolean // Optional: include merged YAML in response
-}
+7. Add update_runner_settings function - Modify runner configuration
+8. Add get_runner_jobs function - List jobs executed by a runner
+9. Add runner_health_check function - Check runner status and availability
