@@ -75,6 +75,13 @@ import {
   GetProjectSchema,
   CILintResponseSchema,
   type CILintResponse,
+  GitLabRunnerSchema,
+  GitLabRunnersResponseSchema,
+  type GitLabRunner,
+  type GitLabRunnersResponse,
+  UpdateRunnerSettingsSchema,
+  GetRunnerJobsSchema,
+  RunnerHealthCheckSchema,
 } from './schemas.js';
 
 /**
@@ -1953,5 +1960,633 @@ export class GitLabApi {
       merged_yaml: data.merged_yaml || '',
       includes: data.includes
     });
+  }
+
+  /**
+   * Enable a specific runner for a project.
+   * 
+   * @param projectId - The ID or URL-encoded path of the project
+   * @param runnerId - The ID of the runner to enable
+   * @returns A promise that resolves to the enabled runner details
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async enable_project_runner(
+    projectId: string,
+    runnerId: string
+  ): Promise<GitLabRunner> {
+    const response = await fetch(
+      `${this.apiUrl}/projects/${encodeURIComponent(projectId)}/runners`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        },
+        body: JSON.stringify({
+          runner_id: parseInt(runnerId)
+        })
+      }
+    );
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 404) {
+        errorMessage = `Project or runner not found: Project ID ${projectId}, Runner ID ${runnerId}`;
+      } else if (response.status === 403) {
+        errorMessage = `Permission denied to enable runner for project`;
+      } else if (response.status === 409) {
+        errorMessage = `Runner ${runnerId} is already enabled for project ${projectId}`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    const data = await response.json();
+    return GitLabRunnerSchema.parse(data);
+  }
+
+  /**
+   * Disable a specific runner for a project.
+   * 
+   * @param projectId - The ID or URL-encoded path of the project
+   * @param runnerId - The ID of the runner to disable
+   * @returns A promise that resolves when the runner is disabled
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async disable_project_runner(
+    projectId: string,
+    runnerId: string
+  ): Promise<void> {
+    const response = await fetch(
+      `${this.apiUrl}/projects/${encodeURIComponent(projectId)}/runners/${encodeURIComponent(runnerId)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${this.token}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 404) {
+        errorMessage = `Project or runner not found: Project ID ${projectId}, Runner ID ${runnerId}`;
+      } else if (response.status === 403) {
+        errorMessage = `Permission denied to disable runner for project`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+  }
+
+  /**
+   * Register a new runner with GitLab.
+   * 
+   * @param registrationToken - The registration token for the runner
+   * @param description - Optional description for the runner
+   * @param tags - Optional array of tags for the runner
+   * @returns A promise that resolves to the registered runner details
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async register_runner(
+    registrationToken: string,
+    description?: string,
+    tags?: string[]
+  ): Promise<any> {
+    const body: Record<string, unknown> = {
+      token: registrationToken
+    };
+    
+    if (description) {
+      body.description = description;
+    }
+    
+    if (tags && tags.length > 0) {
+      body.tag_list = tags.join(',');
+    }
+
+    const response = await fetch(
+      `${this.apiUrl}/runners`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        },
+        body: JSON.stringify(body)
+      }
+    );
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 403) {
+        errorMessage = `Invalid registration token or permission denied`;
+      } else if (response.status === 410) {
+        errorMessage = `Registration token has expired`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    const data = await response.json();
+    return data;
+  }
+
+  /**
+   * Validate that specified runner tags exist and are available for a project.
+   * This helps prevent pipeline creation failures due to invalid tags.
+   * 
+   * @param projectId - The ID or URL-encoded path of the project
+   * @param tags - Array of tags to validate
+   * @returns A promise that resolves to validation results
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async validate_runner_tags(
+    projectId: string,
+    tags: string[]
+  ): Promise<{
+    valid: boolean;
+    available_tags: string[];
+    missing_tags: string[];
+    available_runners: GitLabRunner[];
+  }> {
+    try {
+      // Get all available runners for the project
+      const runnersResponse = await fetch(
+        `${this.apiUrl}/projects/${encodeURIComponent(projectId)}/runners?per_page=100`,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.token}`
+          }
+        }
+      );
+
+      if (!runnersResponse.ok) {
+        throw new McpError(
+          ErrorCode.InternalError,
+          `Failed to fetch project runners: ${runnersResponse.statusText}`
+        );
+      }
+
+      const runnersData = await runnersResponse.json() as unknown[];
+      const runners = runnersData.map((runner: unknown) => GitLabRunnerSchema.parse(runner));
+      
+      // Extract all available tags from active runners
+      const availableTags = new Set<string>();
+      const availableRunners: GitLabRunner[] = [];
+      
+      runners.forEach(runner => {
+        if (runner.active && runner.online) {
+          runner.tag_list.forEach(tag => availableTags.add(tag));
+          availableRunners.push(runner);
+        }
+      });
+
+      // Check which requested tags are missing
+      const availableTagsArray = Array.from(availableTags);
+      const missingTags = tags.filter(tag => !availableTags.has(tag));
+      const valid = missingTags.length === 0;
+
+      return {
+        valid,
+        available_tags: availableTagsArray,
+        missing_tags: missingTags,
+        available_runners: availableRunners
+      };
+
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to validate runner tags: ${error}`
+      );
+    }
+  }
+
+  /**
+   * Lists all runners available to a GitLab project.
+   *
+   * @param projectId - The ID or URL-encoded path of the project
+   * @param options - Optional parameters for filtering and pagination
+   * @returns A promise that resolves to the runners response
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async getProjectRunners(
+    projectId: string,
+    options: {
+      type?: 'instance_type' | 'group_type' | 'project_type';
+      status?: 'online' | 'offline' | 'stale' | 'never_contacted';
+      paused?: boolean;
+      tag_list?: string[];
+      page?: number;
+      per_page?: number;
+    } = {}
+  ): Promise<GitLabRunnersResponse> {
+    const url = new URL(
+      `${this.apiUrl}/projects/${encodeURIComponent(projectId)}/runners`
+    );
+
+    // Add query parameters for filtering and pagination
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined) {
+        if (key === 'tag_list' && Array.isArray(value)) {
+          value.forEach(tag => url.searchParams.append('tag_list[]', tag));
+        } else {
+          url.searchParams.append(key, value.toString());
+        }
+      }
+    });
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+      },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 404) {
+        errorMessage = `Project not found: ${projectId}`;
+      } else if (response.status === 403) {
+        errorMessage = `Permission denied to access project runners`;
+      } else if (response.status === 429) {
+        errorMessage = `GitLab API rate limit exceeded`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    // Parse the response JSON
+    const runners = await response.json();
+
+    // Get the total count from the headers
+    const totalCount = parseInt(response.headers.get("X-Total") || "0");
+
+    // Validate and return the response
+    return GitLabRunnersResponseSchema.parse({
+      count: totalCount,
+      items: runners,
+    });
+  }
+
+  /**
+   * Lists all shared runners available on the GitLab instance.
+   *
+   * @param options - Optional parameters for filtering and pagination
+   * @returns A promise that resolves to the shared runners response
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async listSharedRunners(
+    options: {
+      type?: 'instance_type';
+      status?: 'online' | 'offline' | 'stale' | 'never_contacted';
+      paused?: boolean;
+      tag_list?: string[];
+      page?: number;
+      per_page?: number;
+    } = {}
+  ): Promise<GitLabRunnersResponse> {
+    const url = new URL(`${this.apiUrl}/runners`);
+
+    // Add query parameters for filtering and pagination
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined) {
+        if (key === 'tag_list' && Array.isArray(value)) {
+          value.forEach(tag => url.searchParams.append('tag_list[]', tag));
+        } else {
+          url.searchParams.append(key, value.toString());
+        }
+      }
+    });
+
+    // Add scope to get only shared runners
+    url.searchParams.append('scope', 'shared');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+      },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 403) {
+        errorMessage = `Permission denied to access shared runners`;
+      } else if (response.status === 429) {
+        errorMessage = `GitLab API rate limit exceeded`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    // Parse the response JSON
+    const runners = await response.json();
+
+    // Get the total count from the headers
+    const totalCount = parseInt(response.headers.get("X-Total") || "0");
+
+    // Validate and return the response
+    return GitLabRunnersResponseSchema.parse({
+      count: totalCount,
+      items: runners,
+    });
+  }
+
+  /**
+   * Gets detailed information about a specific runner.
+   *
+   * @param runnerId - The ID of the runner
+   * @returns A promise that resolves to the runner details
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async getRunnerDetails(runnerId: string | number): Promise<GitLabRunner> {
+    const response = await fetch(
+      `${this.apiUrl}/runners/${encodeURIComponent(runnerId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 404) {
+        errorMessage = `Runner not found: ${runnerId}`;
+      } else if (response.status === 403) {
+        errorMessage = `Permission denied to access runner details`;
+      } else if (response.status === 429) {
+        errorMessage = `GitLab API rate limit exceeded`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    // Parse the response JSON
+    const runner = await response.json();
+
+    // Validate and return the response
+    return GitLabRunnerSchema.parse(runner);
+  }
+
+  /**
+   * Updates settings for a specific runner.
+   *
+   * @param runnerId - The ID of the runner to update
+   * @param options - Options for updating the runner settings
+   * @returns A promise that resolves to the updated runner details
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async update_runner_settings(
+    runnerId: string,
+    options: {
+      description?: string;
+      active?: boolean;
+      paused?: boolean;
+      tag_list?: string[];
+      run_untagged?: boolean;
+      locked?: boolean;
+      access_level?: 'not_protected' | 'ref_protected';
+      maximum_timeout?: number;
+    }
+  ): Promise<GitLabRunner> {
+    const body: Record<string, unknown> = {};
+    
+    // Map options to API parameters
+    if (options.description !== undefined) body.description = options.description;
+    if (options.active !== undefined) body.active = options.active;
+    if (options.paused !== undefined) body.paused = options.paused;
+    if (options.tag_list !== undefined) body.tag_list = options.tag_list.join(',');
+    if (options.run_untagged !== undefined) body.run_untagged = options.run_untagged;
+    if (options.locked !== undefined) body.locked = options.locked;
+    if (options.access_level !== undefined) body.access_level = options.access_level;
+    if (options.maximum_timeout !== undefined) body.maximum_timeout = options.maximum_timeout;
+
+    const response = await fetch(
+      `${this.apiUrl}/runners/${encodeURIComponent(runnerId)}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`
+        },
+        body: JSON.stringify(body)
+      }
+    );
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 404) {
+        errorMessage = `Runner not found: ${runnerId}`;
+      } else if (response.status === 403) {
+        errorMessage = `Permission denied to update runner settings`;
+      } else if (response.status === 422) {
+        errorMessage = `Invalid runner settings provided`;
+      } else if (response.status === 429) {
+        errorMessage = `GitLab API rate limit exceeded`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    const data = await response.json();
+    return GitLabRunnerSchema.parse(data);
+  }
+
+  /**
+   * Gets jobs executed by a specific runner.
+   *
+   * @param runnerId - The ID of the runner
+   * @param options - Optional parameters for filtering and pagination
+   * @returns A promise that resolves to the jobs response
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async get_runner_jobs(
+    runnerId: string,
+    options: {
+      status?: 'running' | 'success' | 'failed' | 'canceled' | 'skipped' | 'pending' | 'created' | 'manual';
+      order_by?: 'id' | 'status' | 'stage' | 'name' | 'ref' | 'created_at' | 'started_at' | 'finished_at';
+      sort?: 'asc' | 'desc';
+      page?: number;
+      per_page?: number;
+    } = {}
+  ): Promise<GitLabJobsResponse> {
+    const url = new URL(`${this.apiUrl}/runners/${encodeURIComponent(runnerId)}/jobs`);
+
+    // Add query parameters for filtering and pagination
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined) {
+        url.searchParams.append(key, value.toString());
+      }
+    });
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+      },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `GitLab API error: ${response.statusText}`;
+      
+      if (response.status === 404) {
+        errorMessage = `Runner not found: ${runnerId}`;
+      } else if (response.status === 403) {
+        errorMessage = `Permission denied to access runner jobs`;
+      } else if (response.status === 429) {
+        errorMessage = `GitLab API rate limit exceeded`;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        errorMessage
+      );
+    }
+
+    // Parse the response JSON
+    const jobs = await response.json();
+
+    // Get the total count from the headers
+    const totalCount = parseInt(response.headers.get("X-Total") || "0");
+
+    // Validate and return the response
+    return GitLabJobsResponseSchema.parse({
+      count: totalCount,
+      items: jobs,
+    });
+  }
+
+  /**
+   * Performs a health check on a specific runner to verify its status and availability.
+   *
+   * @param runnerId - The ID of the runner to check
+   * @returns A promise that resolves to the runner health status
+   * @throws Will throw an error if the GitLab API request fails
+   */
+  async runner_health_check(
+    runnerId: string
+  ): Promise<{
+    runner_id: number;
+    healthy: boolean;
+    status: string;
+    online: boolean;
+    last_contact: string | null;
+    version: string | null;
+    platform: string | null;
+    architecture: string | null;
+    ip_address: string | null;
+    issues: string[];
+    recommendations: string[];
+  }> {
+    try {
+      // Get detailed runner information
+      const runner = await this.getRunnerDetails(runnerId);
+      
+      // Analyze runner health
+      const issues: string[] = [];
+      const recommendations: string[] = [];
+      
+      // Check if runner is active
+      if (!runner.active) {
+        issues.push('Runner is not active');
+        recommendations.push('Activate the runner to allow job execution');
+      }
+      
+      // Check if runner is paused
+      if (runner.paused) {
+        issues.push('Runner is paused');
+        recommendations.push('Unpause the runner to resume job execution');
+      }
+      
+      // Check if runner is online
+      if (!runner.online) {
+        issues.push('Runner is offline');
+        recommendations.push('Check runner connectivity and ensure it is running');
+      }
+      
+      // Check last contact time
+      if (runner.contacted_at) {
+        const lastContact = new Date(runner.contacted_at);
+        const now = new Date();
+        const timeDiff = now.getTime() - lastContact.getTime();
+        const minutesDiff = Math.floor(timeDiff / (1000 * 60));
+        
+        if (minutesDiff > 60) {
+          issues.push(`Runner last contacted ${minutesDiff} minutes ago`);
+          recommendations.push('Check if runner process is still running and has network connectivity');
+        }
+      } else {
+        issues.push('Runner has never been contacted');
+        recommendations.push('Verify runner installation and configuration');
+      }
+      
+      // Check runner version (basic check for very old versions)
+      if (runner.version) {
+        const versionParts = runner.version.split('.');
+        const majorVersion = parseInt(versionParts[0], 10);
+        if (majorVersion < 13) {
+          issues.push('Runner version is outdated');
+          recommendations.push('Consider updating to a more recent GitLab Runner version');
+        }
+      }
+      
+      // Determine overall health
+      const healthy = runner.active && !runner.paused && runner.online && issues.length === 0;
+      
+      return {
+        runner_id: runner.id,
+        healthy,
+        status: runner.status,
+        online: runner.online,
+        last_contact: runner.contacted_at,
+        version: runner.version,
+        platform: runner.platform,
+        architecture: runner.architecture,
+        ip_address: runner.ip_address,
+        issues,
+        recommendations
+      };
+      
+    } catch (error) {
+      if (error instanceof McpError) {
+        throw error;
+      }
+      
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to perform runner health check: ${error}`
+      );
+    }
   }
 }

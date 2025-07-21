@@ -762,3 +762,107 @@ export const ValidateCIYamlSchema = z.object({
   content: z.string().optional(),
   include_merged_yaml: z.boolean().optional()
 });
+
+// GitLab Runner Schemas
+export const GitLabRunnerSchema = z.object({
+  id: z.number(),
+  description: z.string().nullable(),
+  ip_address: z.string().nullable(),
+  active: z.boolean(),
+  paused: z.boolean(),
+  is_shared: z.boolean(),
+  runner_type: z.enum(['instance_type', 'group_type', 'project_type']),
+  name: z.string().nullable(),
+  online: z.boolean(),
+  status: z.enum(['online', 'offline', 'stale', 'never_contacted', 'not_connected']),
+  architecture: z.string().nullable(),
+  platform: z.string().nullable(),
+  contacted_at: z.string().nullable(),
+  version: z.string().nullable(),
+  revision: z.string().nullable(),
+  tag_list: z.array(z.string()),
+  run_untagged: z.boolean(),
+  locked: z.boolean(),
+  maximum_timeout: z.number().nullable(),
+  access_level: z.enum(['not_protected', 'ref_protected']),
+  created_at: z.string().optional(),
+});
+
+export type GitLabRunner = z.infer<typeof GitLabRunnerSchema>;
+
+export const GitLabRunnersResponseSchema = z.object({
+  count: z.number(),
+  items: z.array(GitLabRunnerSchema)
+});
+
+export type GitLabRunnersResponse = z.infer<typeof GitLabRunnersResponseSchema>;
+
+// Runner API Input Schemas
+export const GetProjectRunnersSchema = z.object({
+  project_id: z.string(),
+  type: z.enum(['instance_type', 'group_type', 'project_type']).optional(),
+  status: z.enum(['online', 'offline', 'stale', 'never_contacted']).optional(),
+  paused: z.boolean().optional(),
+  tag_list: z.array(z.string()).optional(),
+  page: z.number().optional(),
+  per_page: z.number().optional()
+});
+
+export const ListSharedRunnersSchema = z.object({
+  type: z.enum(['instance_type']).optional(),
+  status: z.enum(['online', 'offline', 'stale', 'never_contacted']).optional(),
+  paused: z.boolean().optional(),
+  tag_list: z.array(z.string()).optional(),
+  page: z.number().optional(),
+  per_page: z.number().optional()
+});
+
+export const GetRunnerDetailsSchema = z.object({
+  runner_id: z.union([z.number(), z.string()])
+});
+
+export const EnableProjectRunnerSchema = z.object({
+  project_id: z.string(),
+  runner_id: z.string()
+});
+
+export const DisableProjectRunnerSchema = z.object({
+  project_id: z.string(),
+  runner_id: z.string()
+});
+
+export const RegisterRunnerSchema = z.object({
+  registration_token: z.string(),
+  description: z.string().optional(),
+  tags: z.array(z.string()).optional()
+});
+
+export const ValidateRunnerTagsSchema = z.object({
+  project_id: z.string(),
+  tags: z.array(z.string())
+});
+
+export const UpdateRunnerSettingsSchema = z.object({
+  runner_id: z.string(),
+  description: z.string().optional(),
+  active: z.boolean().optional(),
+  paused: z.boolean().optional(),
+  tag_list: z.array(z.string()).optional(),
+  run_untagged: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  access_level: z.enum(['not_protected', 'ref_protected']).optional(),
+  maximum_timeout: z.number().optional()
+});
+
+export const GetRunnerJobsSchema = z.object({
+  runner_id: z.string(),
+  status: z.enum(['running', 'success', 'failed', 'canceled', 'skipped', 'pending', 'created', 'manual']).optional(),
+  order_by: z.enum(['id', 'status', 'stage', 'name', 'ref', 'created_at', 'started_at', 'finished_at']).optional(),
+  sort: z.enum(['asc', 'desc']).optional(),
+  page: z.number().optional(),
+  per_page: z.number().optional()
+});
+
+export const RunnerHealthCheckSchema = z.object({
+  runner_id: z.string()
+});

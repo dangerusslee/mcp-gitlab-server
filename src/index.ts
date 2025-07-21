@@ -56,6 +56,16 @@ import {
   ListProjectsSchema,
   GetProjectSchema,
   ValidateCIYamlSchema,
+  GetProjectRunnersSchema,
+  ListSharedRunnersSchema,
+  GetRunnerDetailsSchema,
+  EnableProjectRunnerSchema,
+  DisableProjectRunnerSchema,
+  RegisterRunnerSchema,
+  ValidateRunnerTagsSchema,
+  UpdateRunnerSettingsSchema,
+  GetRunnerJobsSchema,
+  RunnerHealthCheckSchema,
 } from './schemas.js';
 import { GitLabApi } from './gitlab-api.js';
 import { setupTransport } from './transport.js';
@@ -380,6 +390,67 @@ const ALL_TOOLS = [
     name: "validate_ci_yaml",
     description: "Validate GitLab CI YAML configuration using GitLab's lint API",
     inputSchema: createJsonSchema(ValidateCIYamlSchema),
+    readOnly: true
+  },
+  // Runner Management Tools
+  {
+    name: "get_project_runners",
+    description: "Get all runners available for a specific project",
+    inputSchema: createJsonSchema(GetProjectRunnersSchema),
+    readOnly: true
+  },
+  {
+    name: "list_shared_runners", 
+    description: "List all shared runners available in the GitLab instance",
+    inputSchema: createJsonSchema(ListSharedRunnersSchema),
+    readOnly: true
+  },
+  {
+    name: "get_runner_details",
+    description: "Get detailed information about a specific runner",
+    inputSchema: createJsonSchema(GetRunnerDetailsSchema),
+    readOnly: true
+  },
+  {
+    name: "enable_project_runner",
+    description: "Enable a specific runner for a project",
+    inputSchema: createJsonSchema(EnableProjectRunnerSchema),
+    readOnly: false
+  },
+  {
+    name: "disable_project_runner",
+    description: "Disable a specific runner for a project",
+    inputSchema: createJsonSchema(DisableProjectRunnerSchema),
+    readOnly: false
+  },
+  {
+    name: "register_runner",
+    description: "Register a new runner with GitLab",
+    inputSchema: createJsonSchema(RegisterRunnerSchema),
+    readOnly: false
+  },
+  {
+    name: "validate_runner_tags",
+    description: "Validate runner tags and check available tags for a project",
+    inputSchema: createJsonSchema(ValidateRunnerTagsSchema),
+    readOnly: true
+  },
+  {
+    name: "update_runner_settings",
+    description: "Update settings and configuration for a specific runner",
+    inputSchema: createJsonSchema(UpdateRunnerSettingsSchema),
+    readOnly: false
+  },
+  {
+    name: "get_runner_jobs",
+    description: "Get job history and execution details for a specific runner",
+    inputSchema: createJsonSchema(GetRunnerJobsSchema),
+    readOnly: true
+  },
+  {
+    name: "runner_health_check",
+    description: "Perform health check and status verification for a runner",
+    inputSchema: createJsonSchema(RunnerHealthCheckSchema),
     readOnly: true
   },
 ];
@@ -916,6 +987,74 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
           args.include_merged_yaml
         );
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // Runner Management Tools
+      case "get_project_runners": {
+        const args = GetProjectRunnersSchema.parse(request.params.arguments);
+        const { project_id, ...options } = args;
+        const runners = await gitlabApi.getProjectRunners(project_id, options);
+        return { content: [{ type: "text", text: JSON.stringify(runners, null, 2) }] };
+      }
+
+      case "list_shared_runners": {
+        const args = ListSharedRunnersSchema.parse(request.params.arguments);
+        const runners = await gitlabApi.listSharedRunners(args);
+        return { content: [{ type: "text", text: JSON.stringify(runners, null, 2) }] };
+      }
+
+      case "get_runner_details": {
+        const args = GetRunnerDetailsSchema.parse(request.params.arguments);
+        const runner = await gitlabApi.getRunnerDetails(args.runner_id);
+        return { content: [{ type: "text", text: JSON.stringify(runner, null, 2) }] };
+      }
+
+      case "enable_project_runner": {
+        const args = EnableProjectRunnerSchema.parse(request.params.arguments);
+        const runner = await gitlabApi.enable_project_runner(args.project_id, args.runner_id);
+        return { content: [{ type: "text", text: JSON.stringify(runner, null, 2) }] };
+      }
+
+      case "disable_project_runner": {
+        const args = DisableProjectRunnerSchema.parse(request.params.arguments);
+        await gitlabApi.disable_project_runner(args.project_id, args.runner_id);
+        return { content: [{ type: "text", text: `Runner ${args.runner_id} has been disabled for project ${args.project_id}` }] };
+      }
+
+      case "register_runner": {
+        const args = RegisterRunnerSchema.parse(request.params.arguments);
+        const runner = await gitlabApi.register_runner(
+          args.registration_token,
+          args.description,
+          args.tags
+        );
+        return { content: [{ type: "text", text: JSON.stringify(runner, null, 2) }] };
+      }
+
+      case "validate_runner_tags": {
+        const args = ValidateRunnerTagsSchema.parse(request.params.arguments);
+        const result = await gitlabApi.validate_runner_tags(args.project_id, args.tags);
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "update_runner_settings": {
+        const args = UpdateRunnerSettingsSchema.parse(request.params.arguments);
+        const { runner_id, ...settings } = args;
+        const runner = await gitlabApi.update_runner_settings(runner_id, settings);
+        return { content: [{ type: "text", text: JSON.stringify(runner, null, 2) }] };
+      }
+
+      case "get_runner_jobs": {
+        const args = GetRunnerJobsSchema.parse(request.params.arguments);
+        const { runner_id, ...options } = args;
+        const jobs = await gitlabApi.get_runner_jobs(runner_id, options);
+        return { content: [{ type: "text", text: JSON.stringify(jobs, null, 2) }] };
+      }
+
+      case "runner_health_check": {
+        const args = RunnerHealthCheckSchema.parse(request.params.arguments);
+        const healthStatus = await gitlabApi.runner_health_check(args.runner_id);
+        return { content: [{ type: "text", text: JSON.stringify(healthStatus, null, 2) }] };
       }
 
       default:
