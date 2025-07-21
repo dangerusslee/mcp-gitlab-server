@@ -774,7 +774,8 @@ export const GitLabRunnerSchema = z.object({
   runner_type: z.enum(['instance_type', 'group_type', 'project_type']),
   name: z.string().nullable(),
   online: z.boolean(),
-  status: z.enum(['online', 'offline', 'stale', 'never_contacted', 'not_connected']),
+  status: z.enum(['online', 'offline', 'stale', 'never_contacted', 'not_connected', 'paused']),
+  job_execution_status: z.enum(['idle', 'active']).optional(),
   architecture: z.string().nullable(),
   platform: z.string().nullable(),
   contacted_at: z.string().nullable(),
@@ -785,7 +786,16 @@ export const GitLabRunnerSchema = z.object({
   locked: z.boolean(),
   maximum_timeout: z.number().nullable(),
   access_level: z.enum(['not_protected', 'ref_protected']),
-  created_at: z.string().optional(),
+  created_at: z.string(),
+  maintenance_note: z.string().nullable().optional(),
+  projects: z.array(z.object({
+    id: z.number(),
+    name: z.string(),
+  })).optional(),
+  groups: z.array(z.object({
+    id: z.number(),
+    name: z.string(),
+  })).optional(),
 });
 
 export type GitLabRunner = z.infer<typeof GitLabRunnerSchema>;

@@ -2278,8 +2278,10 @@ export class GitLabApi {
       }
     });
 
-    // Add scope to get only shared runners
-    url.searchParams.append('scope', 'shared');
+    // Use type=instance_type instead of scope=shared (scope=shared is invalid)
+    if (!url.searchParams.has('type')) {
+      url.searchParams.append('type', 'instance_type');
+    }
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -2291,7 +2293,7 @@ export class GitLabApi {
       let errorMessage = `GitLab API error: ${response.statusText}`;
       
       if (response.status === 403) {
-        errorMessage = `Permission denied to access shared runners`;
+        errorMessage = `Permission denied to access shared runners. Admin access required for instance runners.`;
       } else if (response.status === 429) {
         errorMessage = `GitLab API rate limit exceeded`;
       }
